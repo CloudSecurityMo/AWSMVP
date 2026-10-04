@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Config regional baseline for AWS Organizations member accounts.
+  Deploy using CloudFormation StackSets with service-managed permissions.
+
+Parameters:
+  CentralConfigBucketName:
+    Type: String
+    Description: Existing S3 bucket in the central logging account for AWS Config delivery.
+    MinLength: 3
+  ConfigSnapshotDeliveryFrequency:
+    Type: String
+    Default: TwentyFour_Hours
+    AllowedValues:
+      - One_Hour
+      - Three_Hours
+      - Six_Hours
+      - Twelve_Hours
+      - TwentyFour_Hours
+  IncludeGlobalResourceTypes:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Set true only in your chosen home Region if you want to record legacy
+      global IAM resource types there. Keep false in other Regions.
+
+Conditions:
+  RecordGlobalResources: !Equals [!Ref IncludeGlobalResourceTypes, 'true']
+
+Resources:
+  ConfigRecorderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Role assumed by AWS Config to record resource configurations.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: config.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWS_ConfigRole
+
+  ConfigRecorder:
+    Type: AWS::Config::ConfigurationRecorder
+    Properties:
+      Name: !Sub 'organization-config-${AWS::Region}'
+      RoleARN: !GetAtt ConfigRecorderRole.Arn
+      RecordingGroup:
+        AllSupported: true
+        IncludeGlobalResourceTypes: !If [RecordGlobalResources, true, false]
+      RecordingMode:
+        RecordingFrequency: CONTINUOUS
+
+  ConfigDeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    Properties:
+      Name: !Sub 'organization-config-${AWS::Region}'
+      S3BucketName: !Ref CentralConfigBucketName
+      ConfigSnapshotDeliveryProperties:
+        DeliveryFrequency: !Ref ConfigSnapshotDeliveryFrequency
+
+Outputs:
+  ConfigurationRecorderName:
+    Value: !Ref ConfigRecorder
+  DeliveryChannelName:
+    Value: !Ref ConfigDeliveryChannel
+  RecorderRoleArn:
+    Value: !GetAtt ConfigRecorderRole.Arn
